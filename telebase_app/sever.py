@@ -22,56 +22,12 @@ executor = ThreadPoolExecutor(max_workers=1)
 
 # 状態管理変数
 user_assignments = {}
-destination_requests = {}
-route_selection = None
-
 # 現在地管理
 current_location_name = "充電ドック" 
 current_moving_location = None
 
 # 現在の目的地選択権を持つユーザーID (初期値: user_1)
 current_destination_selector = "user_1" 
-
-# 経路定義
-ROUTE_PATTERNS = {
-    ("充電ドック", "1"): {"route_left": ["a"], "route_center": ["b"], "route_right": ["e", "c", "d"]},
-    ("充電ドック", "2"): {"route_left": ["a", "d"], "route_center": ["b", "d"], "route_right": ["e", "c"]},
-    ("充電ドック", "3"): {"route_left": ["a", "d", "c"], "route_center": ["b", "c"], "route_right": ["e"]},
-    ("充電ドック", "4"): {"route_left": ["a", "d"], "route_center": ["b"], "route_right": ["e", "c", "d"]},
-    ("充電ドック", "5"): {"route_left": [], "route_center": ["b"], "route_right": ["e"]},
-    ("充電ドック", "6"): {"route_left": ["a"], "route_center": ["b"], "route_right": ["e"]},
-    ("1", "2"): {"route_left": ["d"], "route_center": ["b", "c"], "route_right": ["a", "e", "c"]},
-    ("1", "3"): {"route_left": ["a", "e"], "route_center": ["b", "c"], "route_right": ["d", "c"]},
-    ("1", "4"): {"route_left": ["a", "b"], "route_center": ["d"], "route_right": ["d", "c", "b"]},
-    ("1", "5"): {"route_left": ["a"], "route_center": ["b"], "route_right": ["d", "c", "e"]},
-    ("1", "6"): {"route_left": ["a"], "route_center": ["d", "b"], "route_right": ["d", "c", "e"]},
-    ("2", "1"): {"route_left": ["c", "e", "a"], "route_center": ["c", "b", "a"], "route_right": ["d"]},
-    ("2", "3"): {"route_left": ["d", "a", "e"], "route_center": ["b", "e"], "route_right": ["c"]},
-    ("2", "4"): {"route_left": ["d", "a", "b"], "route_center": ["d"], "route_right": ["c", "b"]},
-    ("2", "5"): {"route_left": ["d", "a"], "route_center": ["b"], "route_right": ["c", "e"]},
-    ("2", "6"): {"route_left": ["d", "a"], "route_center": ["b"], "route_right": ["c", "e"]},
-    ("3", "1"): {"route_left": ["e", "a"], "route_center": ["c", "b", "d"], "route_right": ["c", "d"]},
-    ("3", "2"): {"route_left": ["e", "a", "d"], "route_center": ["b", "d"], "route_right": ["c"]},
-    ("3", "4"): {"route_left": ["e", "a", "d"], "route_center": ["c", "b"], "route_right": ["c", "d"]},
-    ("3", "5"): {"route_left": ["e"], "route_center": ["c", "b"], "route_right": ["c", "d", "a"]},
-    ("3", "6"): {"route_left": ["e", "a"], "route_center": ["e"], "route_right": ["c", "b"]},
-    ("4", "1"): {"route_left": ["a"], "route_center": ["b", "a"], "route_right": ["d", "c", "e"]},
-    ("4", "2"): {"route_left": ["d", "a", "e", "c"], "route_center": ["b", "c"], "route_right": ["c"]},
-    ("4", "3"): {"route_left": ["a", "e"], "route_center": ["b", "c"], "route_right": ["c"]},
-    ("4", "5"): {"route_left": ["a"], "route_center": ["b"], "route_right": ["c", "e"]},
-    ("4", "6"): {"route_left": ["a"], "route_center": ["b"], "route_right": ["c", "e"]},
-    ("5", "1"): {"route_left": ["a"], "route_center": ["b"], "route_right": ["e", "c", "d"]},
-    ("5", "2"): {"route_left": ["a", "d"], "route_center": ["b", "d"], "route_right": ["e", "c"]},
-    ("5", "3"): {"route_left": ["a", "d"], "route_center": ["c"], "route_right": ["e"]},
-    ("5", "4"): {"route_left": ["a", "d"], "route_center": ["b"], "route_right": ["e", "c"]},
-    ("5", "6"): {"route_left": ["a"], "route_center": ["b"], "route_right": ["e"]},
-    ("6", "1"): {"route_left": ["a"], "route_center": ["b"], "route_right": ["e", "c", "d"]},
-    ("6", "2"): {"route_left": ["a", "d"], "route_center": ["b", "4"], "route_right": ["e", "c"]},
-    ("6", "3"): {"route_left": ["a", "d", "c"], "route_center": ["e", "c"], "route_right": ["e"]},
-    ("6", "4"): {"route_left": ["a"], "route_center": ["b"], "route_right": ["c"]},
-    ("6", "5"): {"route_left": ["a"], "route_center": ["b"], "route_right": ["e"]},
-}
-DEFAULT_ROUTE = {"route_left": [], "route_center": [], "route_right": []}
 
 async def send_status_to_all_clients(status_data):
     if not kachaka_clients: return
@@ -98,23 +54,12 @@ async def broadcast_connection_status():
     }
     await send_status_to_all_clients(message)
 
-async def process_destination_and_route():
-    global destination_requests, route_selection, kachaka_client
+# ★★★ 変更: 経路処理を削除し、直接目的地へ移動する関数に変更 ★★★
+async def start_move_to_destination(target_location):
+    global kachaka_client
     
-    if current_destination_selector not in destination_requests:
-        return
-    if route_selection is None:
-        return
-    
-    current_location = current_location_name 
-    final_destination = destination_requests[current_destination_selector]["location"]
-    destination_name = final_destination["name"]
-    
-    print(f"🧐 [Plan] START: '{current_location}' -> GOAL: '{destination_name}' (Via: {route_selection})")
-    
-    route_key = (current_location, destination_name)
-    route_pattern = ROUTE_PATTERNS.get(route_key, DEFAULT_ROUTE)
-    waypoint_names = route_pattern.get(route_selection, [])
+    destination_name = target_location["name"]
+    print(f"🧐 [Plan] START: '{current_location_name}' -> GOAL: '{destination_name}'")
     
     try:
         if not kachaka_client: return
@@ -122,42 +67,23 @@ async def process_destination_and_route():
         locations = kachaka_client.get_locations()
         location_dict = {loc.name: loc for loc in locations}
         
-        waypoints = []
-        for wp_name in waypoint_names:
-            if wp_name in location_dict:
-                loc = location_dict[wp_name]
-                waypoints.append({"id": loc.id, "name": loc.name})
-            else:
-                print(f"⚠️ Waypoint '{wp_name}' not found. Skipping.")
-        
         if destination_name in location_dict:
              dest_loc = location_dict[destination_name]
              final_dest_data = {"id": dest_loc.id, "name": dest_loc.name}
         else:
              print(f"🔥 Destination '{destination_name}' not found!")
-             destination_requests.clear(); route_selection = None; return
+             return
 
-        if waypoints:
-            waypoint_text = " → ".join([wp["name"] for wp in waypoints])
-            message = f"{waypoint_text} を経由して {destination_name} へ向かいます！"
-        else:
-            message = f"{destination_name} へ直接向かいます！"
+        message = f"{destination_name} へ向かいます！"
         
         await send_status_to_all_clients({"type": "STARTING_MOVE", "message": message})
         await asyncio.sleep(1)
         
         with kachaka_lock:
-            for waypoint in waypoints:
-                kachaka_command_queue.append(waypoint)
             kachaka_command_queue.append(final_dest_data)
-        
-        destination_requests.clear()
-        route_selection = None
         
     except Exception as e:
         print(f"🔥 Process Error: {e}")
-        destination_requests.clear()
-        route_selection = None
 
 def kachaka_move_sync(location_id, location_name):
     global kachaka_client
@@ -203,13 +129,14 @@ async def process_kachaka_queue():
                 
                 current_moving_location = None
                 
+                # ★★★ 役割交代ロジック (到着後) ★★★
                 swap_triggers = ["1", "2", "3", "4", "5", "6"]
                 
                 if current_location_name in swap_triggers:
                     current_destination_selector = "user_2" if current_destination_selector == "user_1" else "user_1"
                     print(f"🔄 [Role Swap] Arrived at {current_location_name}. Destination Selector is now: {current_destination_selector}")
                 else:
-                    print(f"➡️ [Continue] Arrived at {current_location_name} (Waypoint). No role swap.")
+                    print(f"➡️ [Continue] Arrived at {current_location_name}. No role swap.")
 
                 await send_status_to_all_clients({
                     "type": "kachaka_status", 
@@ -238,7 +165,6 @@ async def process_kachaka_queue():
 
 @app.websocket("/ws/kachaka")
 async def websocket_kachaka_endpoint(websocket: WebSocket):
-    global route_selection 
     await websocket.accept()
     kachaka_clients.add(websocket)
     user_id = None
@@ -283,45 +209,18 @@ async def websocket_kachaka_endpoint(websocket: WebSocket):
                      await websocket.send_json({"type": "ERROR", "message": "パートナーがいません。"})
                      continue
 
-                if current_moving_location or destination_requests:
-                    await websocket.send_json({"type": "ERROR", "message": "処理中です。"})
-                    continue
-                
-                destination_requests[user_id] = {"location": data.get("location")}
-                
-                # ★★★ 修正: プレビュー用にルート情報と目的地を送る ★★★
-                dest_name = data.get("location")["name"]
-                route_key = (current_location_name, dest_name)
-                available_routes = ROUTE_PATTERNS.get(route_key, DEFAULT_ROUTE)
-
-                await send_status_to_all_clients({
-                    "type": "WAITING_FOR_ROUTE", 
-                    "message": f"目的地「{dest_name}」選択済", 
-                    "for_user": partner_id,
-                    "route_options": available_routes, # ルート情報
-                    "target_destination": dest_name    # 最終目的地名
-                })
-                await websocket.send_json({"type": "WAITING_FOR_ROUTE", "message": "パートナーの経路選択を待っています..."})
-
-            elif action == "SELECT_ROUTE":
-                if user_id == current_destination_selector:
-                    await websocket.send_json({"type": "ERROR", "message": "あなたは目的地選択担当です。"})
-                    continue
-
                 if current_moving_location:
                     await websocket.send_json({"type": "ERROR", "message": "移動中です。"})
                     continue
-                if current_destination_selector not in destination_requests:
-                    await websocket.send_json({"type": "ERROR", "message": "先に目的地を選んでください。"})
-                    continue
-                route_selection = data.get("route")
-                await process_destination_and_route()
+                
+                # ★★★ 変更: 経路選択を経ずに即座に移動開始 ★★★
+                target_loc = data.get("location")
+                await start_move_to_destination(target_loc)
 
     except WebSocketDisconnect:
         u_id = user_assignments.pop(websocket, None)
         kachaka_clients.discard(websocket)
         if u_id:
-            destination_requests.clear(); route_selection = None
             print(f"❌ [Disconnect] {u_id}")
             await send_status_to_all_clients({"type": "user_disconnected", "message": "リセットされました"})
             await broadcast_connection_status()
@@ -379,14 +278,14 @@ async def websocket_servo_endpoint(websocket: WebSocket):
 @app.on_event("startup")
 async def startup_event():
     global kachaka_client
-    print("🚀 Server Starting (Target Swap Mode)...")
+    print("🚀 Server Starting (Direct Destination Mode)...")
     threading.Thread(target=servo_thread_loop, daemon=True).start()
     try:
         kachaka_client = kachaka_api.KachakaApiClient(f"{KACHAKA_IP}:26400")
         print(f"✅ Connected to Kachaka! Ver: {kachaka_client.get_robot_version()}")
     except Exception as e:
         print(f"🔥 Kachaka connect failed: {e}")
-        asyncio.create_task(retry_kachaka_connection())
+        # asyncio.create_task(retry_kachaka_connection()) 
     
     asyncio.create_task(process_kachaka_queue())
     print("✅ Server Ready")

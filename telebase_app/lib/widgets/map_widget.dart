@@ -8,20 +8,17 @@ import 'package:telebase_app/utils/helpers/map_helper.dart';
 import 'package:telebase_app/widgets/map_image.dart';
 import 'package:telebase_app/widgets/robot_widget.dart';
 import 'package:kachaka_api/kachaka_api.dart';
-import 'package:telebase_app/widgets/map_arrow_painter.dart'; // 追加
 
 class MapWidget extends HookConsumerWidget {
   final Map_ mapInfo;
   final List<PinModel> pins;
   final ValueNotifier<MapTransformState> mapTransformState;
-  final List<Pose>? previewPath; // 追加
 
   const MapWidget({
     super.key,
     required this.mapInfo,
     required this.pins,
     required this.mapTransformState,
-    this.previewPath, // 追加
   });
 
   @override
@@ -59,22 +56,6 @@ class MapWidget extends HookConsumerWidget {
           return null;
         }, [mapLayout]);
 
-        // ★★★ プレビューパスを画面座標(Offset)に変換 ★★★
-        List<Offset> arrowOffsets = [];
-        if (previewPath != null) {
-          arrowOffsets = previewPath!.map((pose) {
-            final loc = MapHelper.pinWidgetToMapLocation(
-              mapInfo: mapInfo,
-              pose: pose,
-              pinCenterFormLeft: 0,
-              pinCenterFromBottom: 0,
-              layoutInfo: mapLayout,
-            );
-            // bottom基準をtop基準に変換
-            return Offset(loc[0], mapLayout.mapHeight - loc[1]);
-          }).toList();
-        }
-
         return RotatedBox(
           quarterTurns: 3,
           child: InteractiveViewer(
@@ -98,18 +79,6 @@ class MapWidget extends HookConsumerWidget {
                     width: mapLayout.mapWidth,
                     height: mapLayout.mapHeight,
                   ),
-
-                  // ★★★ 追加: 経路プレビュー描画 ★★★
-                  if (arrowOffsets.isNotEmpty)
-                    Positioned.fill(
-                      child: CustomPaint(
-                        painter: MapArrowPainter(
-                          points: arrowOffsets,
-                          color: Colors.orangeAccent.withOpacity(0.8),
-                        ),
-                      ),
-                    ),
-
                   ...pins.map(
                     (e) {
                       final scaleFactor = e.shouldScale

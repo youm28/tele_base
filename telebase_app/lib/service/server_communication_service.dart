@@ -12,13 +12,8 @@ final cooperationMessageProvider =
     StateProvider<String>((ref) => 'サーバーに接続中...');
 final robotStatusProvider = StateProvider<String>((ref) => 'idle');
 final currentLocationProvider = StateProvider<String>((ref) => '充電ドック');
-final uiModeProvider = StateProvider<String>((ref) => 'destination');
 final isSystemReadyProvider = StateProvider<bool>((ref) => false);
 final destinationSelectorProvider = StateProvider<String>((ref) => 'user_1');
-
-// ★★★ 追加: ルートプレビュー用のProvider ★★★
-final routeOptionsProvider = StateProvider<Map<String, dynamic>>((ref) => {});
-final targetDestinationProvider = StateProvider<String?>((ref) => null);
 
 final serverCommunicationServiceProvider =
     Provider((ref) => ServerCommunicationService(ref));
@@ -38,6 +33,7 @@ class ServerCommunicationService {
       _channel!.stream.listen((message) {
         final data = jsonDecode(message);
         final type = data['type'] as String?;
+        // ignore: unused_local_variable
         final userId = _ref.read(userIdProvider);
 
         switch (type) {
@@ -75,34 +71,8 @@ class ServerCommunicationService {
             }
             break;
 
-          case 'WAITING_FOR_ROUTE':
-            _ref.read(cooperationMessageProvider.notifier).state =
-                data['message'];
-
-            // ★★★ 追加: ルート情報と目的地の保存 ★★★
-            if (data['route_options'] != null) {
-              _ref.read(routeOptionsProvider.notifier).state =
-                  Map<String, dynamic>.from(data['route_options']);
-            }
-            if (data['target_destination'] != null) {
-              _ref.read(targetDestinationProvider.notifier).state =
-                  data['target_destination'];
-            }
-
-            final selector = _ref.read(destinationSelectorProvider);
-            if (userId == selector) {
-              _ref.read(uiModeProvider.notifier).state = 'waiting';
-              _ref.read(cooperationMessageProvider.notifier).state =
-                  "ユーザ２が経路を選択しています";
-            } else {
-              _ref.read(uiModeProvider.notifier).state = 'route';
-            }
-            break;
-
           case 'STARTING_MOVE':
-            _ref.read(cooperationMessageProvider.notifier).state =
-                "選択された目的地へ向かいます";
-            _ref.read(uiModeProvider.notifier).state = 'waiting';
+            _ref.read(cooperationMessageProvider.notifier).state = "目的地へ向かいます";
             break;
 
           case 'kachaka_status':
@@ -119,20 +89,14 @@ class ServerCommunicationService {
             }
 
             if (status == 'idle' || status == 'error') {
-              _ref.read(uiModeProvider.notifier).state = 'destination';
-              // クリア
-              _ref.read(routeOptionsProvider.notifier).state = {};
-              _ref.read(targetDestinationProvider.notifier).state = null;
-
               _updateIdleMessage();
             } else if (status == 'moving') {
               _ref.read(cooperationMessageProvider.notifier).state =
-                  "選択された目的地へ向かいます";
+                  "目的地へ向かいます";
             }
             break;
 
           case 'user_disconnected':
-            _ref.read(uiModeProvider.notifier).state = 'destination';
             _ref.read(cooperationMessageProvider.notifier).state =
                 data['message'];
             break;
@@ -185,13 +149,6 @@ class ServerCommunicationService {
     };
     _channel!.sink.add(jsonEncode(command));
     debugPrint('PCサーバーへ目的地リクエストを送信しました: ${location.name}');
-  }
-
-  void sendRouteSelection(String route) {
-    if (_channel == null || _channel!.closeCode != null) return;
-    final command = {"action": "SELECT_ROUTE", "route": route};
-    _channel!.sink.add(jsonEncode(command));
-    debugPrint('PCサーバーへ経路選択を送信しました: $route');
   }
 
   void disconnect() {

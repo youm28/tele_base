@@ -17,7 +17,6 @@ class HomeScreen extends HookConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final robotStatus = ref.watch(robotStatusProvider);
     final cooperationMessage = ref.watch(cooperationMessageProvider);
-    final uiMode = ref.watch(uiModeProvider);
     final userId = ref.watch(userIdProvider);
     final isRobotBusy = robotStatus == 'moving';
 
@@ -33,41 +32,9 @@ class HomeScreen extends HookConsumerWidget {
     final isSystemReady = ref.watch(isSystemReadyProvider);
     final destinationSelector = ref.watch(destinationSelectorProvider);
 
-    // ★★★ 追加: ルートプレビュー用のデータ ★★★
-    final routeOptions = ref.watch(routeOptionsProvider);
-    final targetDestination = ref.watch(targetDestinationProvider);
-    final selectedPreviewRoute = useState<String?>(null); // 現在プレビュー中のルート
-
     const allowedStartLocations = ['充電ドック', '1', '2', '3', '4', '5', '6'];
     final isAtValidStartLocation =
         allowedStartLocations.contains(currentLocation);
-
-    // ★★★ 追加: プレビューパスの生成 ★★★
-    List<Pose>? previewPath;
-    if (selectedPreviewRoute.value != null && robotPose != null) {
-      final path = [robotPose]; // 1. スタート地点 (ロボット)
-
-      // 2. 経由地
-      final waypointsNames =
-          routeOptions[selectedPreviewRoute.value] as List<dynamic>? ?? [];
-      for (var name in waypointsNames) {
-        final loc = locations.firstWhere((l) => l.name == name,
-            orElse: () => Location());
-        if (loc.name.isNotEmpty) {
-          path.add(loc.pose);
-        }
-      }
-
-      // 3. 最終目的地
-      if (targetDestination != null) {
-        final destLoc = locations.firstWhere((l) => l.name == targetDestination,
-            orElse: () => Location());
-        if (destLoc.name.isNotEmpty) {
-          path.add(destLoc.pose);
-        }
-      }
-      previewPath = path;
-    }
 
     void sendRequest(Location targetLocation) {
       if (robotPose == null) {
@@ -80,11 +47,11 @@ class HomeScreen extends HookConsumerWidget {
           .sendDestinationRequest(targetLocation, robotPose);
     }
 
+    // 目的地リスト: 数値の場所のみ (1,2,3,4,5,6)
     final availableDestinations = locations.where((l) {
-      final restrictedNames = ['充電ドック', 'a', 'b', 'c', 'd', 'e'];
-      return !restrictedNames.contains(l.name) &&
-          l.name != currentLocation &&
-          l.type != LocationType.LOCATION_TYPE_SHELF_HOME;
+      final allowedNames = ['1', '2', '3', '4', '5', '6'];
+      // 充電ドックも帰還用に含める場合はここに追加
+      return allowedNames.contains(l.name) && l.name != currentLocation;
     }).toList();
 
     availableDestinations.sort((a, b) {
@@ -97,11 +64,12 @@ class HomeScreen extends HookConsumerWidget {
 
     // ★ 目的地ボタン
     Widget buildDestinationButtons() {
+      // 自分が目的地選択担当でない場合
       if (userId != destinationSelector) {
-        if (isRobotBusy || uiMode == 'waiting') {
+        if (isRobotBusy) {
           return const Center(
             child: Text(
-              "選択された目的地へ\n向かいます",
+              "目的地へ向かいます",
               textAlign: TextAlign.center,
               style: TextStyle(
                   fontSize: 20,
@@ -119,15 +87,14 @@ class HomeScreen extends HookConsumerWidget {
         );
       }
 
+      // 自分が目的地選択担当の場合
       return ListView.separated(
         itemCount: availableDestinations.length,
         separatorBuilder: (context, index) => const SizedBox(height: 12),
         itemBuilder: (context, index) {
           final location = availableDestinations[index];
-          final bool canPress = !isRobotBusy &&
-              uiMode != 'waiting' &&
-              isAtValidStartLocation &&
-              isSystemReady;
+          final bool canPress =
+              !isRobotBusy && isAtValidStartLocation && isSystemReady;
 
           return ElevatedButton(
             onPressed: canPress ? () => sendRequest(location) : null,
@@ -148,106 +115,10 @@ class HomeScreen extends HookConsumerWidget {
       );
     }
 
-    // ★ 経路選択ボタン (プレビュー機能付き)
-    Widget buildRouteButtons() {
-      final routes = [
-        {'label': '左ルート', 'value': 'route_left', 'color': Colors.pink.shade400},
-        {
-          'label': '中央ルート',
-          'value': 'route_center',
-          'color': Colors.purple.shade500
-        },
-        {
-          'label': '右ルート',
-          'value': 'route_right',
-          'color': Colors.indigo.shade500
-        },
-      ];
-      final serverCommService = ref.read(serverCommunicationServiceProvider);
-
-      return Column(
-        children: [
-          Expanded(
-            child: ListView.separated(
-              itemCount: routes.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final route = routes[index];
-                final value = route['value'] as String;
-                final isSelected = selectedPreviewRoute.value == value;
-
-                final bool canPress = !isRobotBusy &&
-                    uiMode != 'waiting' &&
-                    isAtValidStartLocation &&
-                    isSystemReady;
-
-                return ElevatedButton(
-                  onPressed: canPress
-                      ? () {
-                          // ★ タップしたらプレビュー状態にする (送信はしない)
-                          selectedPreviewRoute.value = value;
-                        }
-                      : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: route['color'] as Color,
-                    // 選択中は枠線で強調
-                    side: isSelected
-                        ? const BorderSide(color: Colors.white, width: 4)
-                        : null,
-                    disabledBackgroundColor: Colors.grey.shade400,
-                    padding: const EdgeInsets.symmetric(vertical: 20),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      if (isSelected)
-                        const Icon(Icons.check, color: Colors.white),
-                      const SizedBox(width: 8),
-                      Text(route['label'] as String,
-                          style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white)),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
-          // ★★★ 決定ボタン (プレビュー選択時のみ表示) ★★★
-          if (selectedPreviewRoute.value != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: ElevatedButton(
-                onPressed: () {
-                  // ここで送信
-                  serverCommService
-                      .sendRouteSelection(selectedPreviewRoute.value!);
-                  selectedPreviewRoute.value = null; // リセット
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  minimumSize: const Size(double.infinity, 60),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-                child: const Text("この経路で決定",
-                    style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white)),
-              ),
-            ),
-        ],
-      );
-    }
-
     String displayMessage = cooperationMessage;
     if (!isSystemReady) {
       displayMessage = "パートナーの接続を待っています...";
-    } else if (!isAtValidStartLocation && !isRobotBusy && uiMode != 'waiting') {
+    } else if (!isAtValidStartLocation && !isRobotBusy) {
       displayMessage = "指定外の場所($currentLocation)にいます。\n操作できません。";
     }
 
@@ -266,21 +137,17 @@ class HomeScreen extends HookConsumerWidget {
                 color:
                     !isSystemReady || (!isAtValidStartLocation && !isRobotBusy)
                         ? Colors.grey.shade300
-                        : (uiMode == 'route'
-                            ? Colors.purple.shade50
-                            : (robotStatus == 'moving'
-                                ? Colors.orange.shade100
-                                : Colors.blue.shade50)),
+                        : (robotStatus == 'moving'
+                            ? Colors.orange.shade100
+                            : Colors.blue.shade50),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
                     color: !isSystemReady ||
                             (!isAtValidStartLocation && !isRobotBusy)
                         ? Colors.grey.shade500
-                        : (uiMode == 'route'
-                            ? Colors.purple.shade300
-                            : (robotStatus == 'moving'
-                                ? Colors.orange.shade300
-                                : Colors.blue.shade200)),
+                        : (robotStatus == 'moving'
+                            ? Colors.orange.shade300
+                            : Colors.blue.shade200),
                     width: 2),
               ),
               alignment: Alignment.center,
@@ -292,25 +159,21 @@ class HomeScreen extends HookConsumerWidget {
                     color: !isSystemReady ||
                             (!isAtValidStartLocation && !isRobotBusy)
                         ? Colors.black54
-                        : (uiMode == 'route'
-                            ? Colors.purple.shade900
-                            : (robotStatus == 'moving'
-                                ? Colors.orange.shade900
-                                : Colors.blue.shade900)),
+                        : (robotStatus == 'moving'
+                            ? Colors.orange.shade900
+                            : Colors.blue.shade900),
                     fontWeight: FontWeight.bold),
               ),
             ),
             const SizedBox(height: 24),
-            Text(
-              uiMode == 'route' ? "経路を選択" : "目的地",
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+            const Text(
+              "目的地",
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
               textAlign: TextAlign.left,
             ),
             const SizedBox(height: 16),
             Expanded(
-              child: (uiMode == 'route' && userId != destinationSelector)
-                  ? buildRouteButtons()
-                  : buildDestinationButtons(),
+              child: buildDestinationButtons(),
             ),
           ],
         ),
@@ -336,7 +199,6 @@ class HomeScreen extends HookConsumerWidget {
                       pins: [
                         ...visibleLocations.map((e) => _locationPin(e, () {
                               if (!isRobotBusy &&
-                                  uiMode != 'waiting' &&
                                   userId == destinationSelector &&
                                   isAtValidStartLocation &&
                                   isSystemReady) {
@@ -345,7 +207,6 @@ class HomeScreen extends HookConsumerWidget {
                             })),
                       ],
                       mapTransformState: mapTransformState,
-                      previewPath: previewPath, // ★ MapWidgetにプレビューパスを渡す
                     ),
                   ),
           ),
