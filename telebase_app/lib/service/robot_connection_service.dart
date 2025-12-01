@@ -1,0 +1,79 @@
+import 'package:flutter/foundation.dart';
+import 'package:grpc/grpc.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:telebase_app/model/connection_options.dart';
+import 'package:telebase_app/repositories/kachaka/kachaka_repository.dart';
+import 'package:telebase_app/service/app_to_robot_polling_service.dart';
+import 'package:telebase_app/stores/location/location_store.dart';
+import 'package:telebase_app/stores/map/map_store.dart';
+import 'package:telebase_app/stores/robot/robot_store.dart';
+import 'package:telebase_app/stores/shelf/shelf_store.dart';
+
+final robotConnectionServiceProvider =
+    Provider((ref) => RobotConnectionService(ref));
+
+class RobotConnectionService {
+  RobotConnectionService(this._ref);
+
+  final Ref _ref;
+
+  Future<void> connect(ConnectionOptions options) async {
+    await dispose();
+
+    _ref.read(kachakaRepositoryProvider).initializeChannel(options);
+
+    startPolling();
+  }
+
+  Future<void> dispose() async {
+    await _ref.read(kachakaRepositoryProvider).terminate();
+    _ref.invalidate(kachakaRepositoryProvider);
+  }
+
+  Future<void> startPolling() async {
+    final pollingChannelId = _ref.read(kachakaRepositoryProvider).channelId!;
+    _ref.read(appToRobotPollingService).polling(
+          _ref.read(kachakaRepositoryProvider).getLocations,
+          (res) => _ref
+              .read(locationStoreProvider.notifier)
+              .setLocations(res.locations),
+          pollingChannelId,
+        );
+    _ref.read(appToRobotPollingService).polling(
+          _ref.read(kachakaRepositoryProvider).getShelves,
+          (res) =>
+              _ref.read(shelfStoreProvider.notifier).setShelves(res.shelves),
+          pollingChannelId,
+        );
+    _ref.read(appToRobotPollingService).polling(
+          _ref.read(kachakaRepositoryProvider).getPngMap,
+          (res) => _ref.read(mapStoreProvider.notifier).setMap(res.map),
+          pollingChannelId,
+        );
+    _ref.read(appToRobotPollingService).polling(
+          _ref.read(kachakaRepositoryProvider).getRobotPose,
+          (res) =>
+              _ref.read(robotStoreProvider.notifier).setRobotPose(res.pose),
+          pollingChannelId,
+        );
+  }
+
+  Future<void> getLocations() async {
+    try {
+      final response =
+          await _ref.read(kachakaRepositoryProvider).getLocations();
+      // 正常処理
+    } on GrpcError catch (e) {
+      if (e.code == StatusCode.cancelled) {
+        debugPrint('getLocations: リクエストがキャンセルされました - スキップします');
+        // キャンセルエラーは無視して続行
+        return;
+      } else {
+        debugPrint('getLocations: gRPCエラー - ${e.code}: ${e.message}');
+        // その他のエラーは再試行または適切な処理
+      }
+    } catch (e) {
+      debugPrint('getLocations: 予期しないエラー: $e');
+    }
+  }
+}
