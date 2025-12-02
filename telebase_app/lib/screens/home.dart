@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // キーボード操作用
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:telebase_app/model/map_transform_state.dart';
 import 'package:telebase_app/model/pin_model.dart';
 import 'package:telebase_app/service/server_communication_service.dart';
+import 'package:telebase_app/service/servo_service.dart';
 import 'package:telebase_app/stores/location/location_store.dart';
 import 'package:telebase_app/stores/map/map_store.dart';
 import 'package:telebase_app/stores/robot/robot_store.dart';
@@ -15,6 +17,12 @@ class HomeScreen extends HookConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // 初回ビルド時にServoサーバーへも接続
+    useEffect(() {
+      ref.read(servoServiceProvider).connect();
+      return null;
+    }, []);
+
     final robotStatus = ref.watch(robotStatusProvider);
     final cooperationMessage = ref.watch(cooperationMessageProvider);
     final userId = ref.watch(userIdProvider);
@@ -36,6 +44,41 @@ class HomeScreen extends HookConsumerWidget {
     final isAtValidStartLocation =
         allowedStartLocations.contains(currentLocation);
 
+    // ★ キーボード入力ハンドラ (矢印キー・左右反転)
+    void handleKeyEvent(KeyEvent event) {
+      if (userId == null) return;
+
+      // キー押し込み(Down)と離した(Up)のみ処理
+      if (event is! KeyDownEvent && event is! KeyUpEvent) return;
+
+      final isPressed = event is KeyDownEvent;
+      final servoService = ref.read(servoServiceProvider);
+
+      // 矢印キーの割り当て (左右反転設定)
+
+      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+        // 右キー -> 逆方向 (Negative/Decrease) へ
+        debugPrint("➡️ Arrow Right (Pressed: $isPressed) -> Sending Negative");
+        servoService.handleKeyInput(
+            axis: 'horizontal', isPositive: false, isPressed: isPressed);
+      } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+        // 左キー -> 逆方向 (Positive/Increase) へ
+        debugPrint("⬅️ Arrow Left (Pressed: $isPressed) -> Sending Positive");
+        servoService.handleKeyInput(
+            axis: 'horizontal', isPositive: true, isPressed: isPressed);
+      } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+        // 上キー -> 正方向 (Positive/Increase)
+        debugPrint("⬆️ Arrow Up (Pressed: $isPressed)");
+        servoService.handleKeyInput(
+            axis: 'vertical', isPositive: true, isPressed: isPressed);
+      } else if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+        // 下キー -> 負方向 (Negative/Decrease)
+        debugPrint("⬇️ Arrow Down (Pressed: $isPressed)");
+        servoService.handleKeyInput(
+            axis: 'vertical', isPositive: false, isPressed: isPressed);
+      }
+    }
+
     void sendRequest(Location targetLocation) {
       if (robotPose == null) {
         ScaffoldMessenger.of(context)
@@ -50,7 +93,6 @@ class HomeScreen extends HookConsumerWidget {
     // 目的地リスト: 数値の場所のみ (1,2,3,4,5,6)
     final availableDestinations = locations.where((l) {
       final allowedNames = ['1', '2', '3', '4', '5', '6'];
-      // 充電ドックも帰還用に含める場合はここに追加
       return allowedNames.contains(l.name) && l.name != currentLocation;
     }).toList();
 
@@ -64,7 +106,6 @@ class HomeScreen extends HookConsumerWidget {
 
     // ★ 目的地ボタン
     Widget buildDestinationButtons() {
-      // 自分が目的地選択担当でない場合
       if (userId != destinationSelector) {
         if (isRobotBusy) {
           return const Center(
@@ -87,7 +128,6 @@ class HomeScreen extends HookConsumerWidget {
         );
       }
 
-      // 自分が目的地選択担当の場合
       return ListView.separated(
         itemCount: availableDestinations.length,
         separatorBuilder: (context, index) => const SizedBox(height: 12),
@@ -180,38 +220,46 @@ class HomeScreen extends HookConsumerWidget {
       ),
     );
 
-    return Scaffold(
-      body: Row(
-        children: [
-          Expanded(
-            flex: 2,
-            child: mapInfo == null
-                ? AspectRatio(
-                    aspectRatio: 1.0,
-                    child: Container(
-                        color: const Color(0xFFF8F1F8),
-                        child:
-                            const Center(child: CircularProgressIndicator())))
-                : AspectRatio(
-                    aspectRatio: 1.0,
-                    child: MapWidget(
-                      mapInfo: mapInfo,
-                      pins: [
-                        ...visibleLocations.map((e) => _locationPin(e, () {
-                              if (!isRobotBusy &&
-                                  userId == destinationSelector &&
-                                  isAtValidStartLocation &&
-                                  isSystemReady) {
-                                sendRequest(e);
-                              }
-                            })),
-                      ],
-                      mapTransformState: mapTransformState,
+    // FocusをScaffoldの外側に配置し、画面全体で入力を確実に受け取る
+    return Focus(
+      autofocus: true,
+      onKeyEvent: (node, event) {
+        handleKeyEvent(event);
+        return KeyEventResult.handled;
+      },
+      child: Scaffold(
+        body: Row(
+          children: [
+            Expanded(
+              flex: 2,
+              child: mapInfo == null
+                  ? AspectRatio(
+                      aspectRatio: 1.0,
+                      child: Container(
+                          color: const Color(0xFFF8F1F8),
+                          child:
+                              const Center(child: CircularProgressIndicator())))
+                  : AspectRatio(
+                      aspectRatio: 1.0,
+                      child: MapWidget(
+                        mapInfo: mapInfo,
+                        pins: [
+                          ...visibleLocations.map((e) => _locationPin(e, () {
+                                if (!isRobotBusy &&
+                                    userId == destinationSelector &&
+                                    isAtValidStartLocation &&
+                                    isSystemReady) {
+                                  sendRequest(e);
+                                }
+                              })),
+                        ],
+                        mapTransformState: mapTransformState,
+                      ),
                     ),
-                  ),
-          ),
-          questionArea,
-        ],
+            ),
+            questionArea,
+          ],
+        ),
       ),
     );
   }
