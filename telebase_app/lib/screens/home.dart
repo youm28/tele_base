@@ -40,6 +40,11 @@ class HomeScreen extends HookConsumerWidget {
     final isSystemReady = ref.watch(isSystemReadyProvider);
     final destinationSelector = ref.watch(destinationSelectorProvider);
 
+    // ★ 追加: UIモードとルート情報の監視
+    final uiMode = ref.watch(uiModeProvider);
+    final routeOptions = ref.watch(routeOptionsProvider);
+    final targetDestination = ref.watch(targetDestinationProvider);
+
     const allowedStartLocations = ['充電ドック', '1', '2', '3', '4', '5', '6'];
     final isAtValidStartLocation =
         allowedStartLocations.contains(currentLocation);
@@ -47,50 +52,33 @@ class HomeScreen extends HookConsumerWidget {
     // ★ キーボード入力ハンドラ (矢印キー・左右反転)
     void handleKeyEvent(KeyEvent event) {
       if (userId == null) return;
-
-      // キー押し込み(Down)と離した(Up)のみ処理
       if (event is! KeyDownEvent && event is! KeyUpEvent) return;
-
       final isPressed = event is KeyDownEvent;
       final servoService = ref.read(servoServiceProvider);
 
-      // 矢印キーの割り当て (左右反転設定)
-
       if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-        // 右キー -> 逆方向 (Negative/Decrease) へ
-        debugPrint("➡️ Arrow Right (Pressed: $isPressed) -> Sending Negative");
         servoService.handleKeyInput(
             axis: 'horizontal', isPositive: false, isPressed: isPressed);
       } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-        // 左キー -> 逆方向 (Positive/Increase) へ
-        debugPrint("⬅️ Arrow Left (Pressed: $isPressed) -> Sending Positive");
         servoService.handleKeyInput(
             axis: 'horizontal', isPositive: true, isPressed: isPressed);
       } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-        // 上キー -> 正方向 (Positive/Increase)
-        debugPrint("⬆️ Arrow Up (Pressed: $isPressed)");
         servoService.handleKeyInput(
             axis: 'vertical', isPositive: true, isPressed: isPressed);
       } else if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-        // 下キー -> 負方向 (Negative/Decrease)
-        debugPrint("⬇️ Arrow Down (Pressed: $isPressed)");
         servoService.handleKeyInput(
             axis: 'vertical', isPositive: false, isPressed: isPressed);
       }
     }
 
     void sendRequest(Location targetLocation) {
-      if (robotPose == null) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text("ロボットの現在位置が不明です。")));
-        return;
-      }
+      if (robotPose == null) return;
       ref
           .read(serverCommunicationServiceProvider)
           .sendDestinationRequest(targetLocation, robotPose);
     }
 
-    // 目的地リスト: 数値の場所のみ (1,2,3,4,5,6)
+    // 目的地リスト作成
     final availableDestinations = locations.where((l) {
       final allowedNames = ['1', '2', '3', '4', '5', '6'];
       return allowedNames.contains(l.name) && l.name != currentLocation;
@@ -104,28 +92,27 @@ class HomeScreen extends HookConsumerWidget {
 
     final visibleLocations = availableDestinations;
 
-    // ★ 目的地ボタン
+    // ★ 目的地ボタンリスト構築
     Widget buildDestinationButtons() {
+      // 自分がセレクターでない場合
       if (userId != destinationSelector) {
-        if (isRobotBusy) {
-          return const Center(
-            child: Text(
-              "目的地へ向かいます",
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  fontSize: 20,
-                  color: Colors.orange,
-                  fontWeight: FontWeight.bold),
-            ),
-          );
-        }
         return const Center(
           child: Text(
-            "パートナーが目的地を選択するのを\n待っています...",
+            "パートナーが操作中です\n(目的地・経路選択)",
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 18, color: Colors.grey),
           ),
         );
+      }
+
+      // ロボット移動中
+      if (isRobotBusy) {
+        return const Center(
+            child: Text("目的地へ向かいます",
+                style: TextStyle(
+                    fontSize: 20,
+                    color: Colors.orange,
+                    fontWeight: FontWeight.bold)));
       }
 
       return ListView.separated(
@@ -155,6 +142,76 @@ class HomeScreen extends HookConsumerWidget {
       );
     }
 
+    // ★ 経路選択ボタンリスト構築
+    Widget buildRouteButtons() {
+      final routesLeft = routeOptions['route_left'] as List? ?? [];
+      final routesCenter = routeOptions['route_center'] as List? ?? [];
+      final routesRight = routeOptions['route_right'] as List? ?? [];
+
+      final hasLeft = routesLeft.isNotEmpty;
+      final hasCenter = routesCenter.isNotEmpty;
+      final hasRight = routesRight.isNotEmpty;
+
+      Widget routeBtn(
+          String label, String key, List<dynamic> waypoints, bool isActive) {
+        return ElevatedButton(
+          onPressed: isActive
+              ? () {
+                  ref
+                      .read(serverCommunicationServiceProvider)
+                      .sendRouteSelection(key);
+                }
+              : null,
+          style: ElevatedButton.styleFrom(
+            backgroundColor:
+                isActive ? Colors.green.shade600 : Colors.grey.shade300,
+            padding: const EdgeInsets.symmetric(vertical: 20),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          child: Column(
+            children: [
+              Text(label,
+                  style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white)),
+              const SizedBox(height: 4),
+              Text(waypoints.join(" -> "),
+                  style: const TextStyle(fontSize: 12, color: Colors.white70)),
+            ],
+          ),
+        );
+      }
+
+      return Column(
+        children: [
+          Expanded(
+            child: ListView(
+              children: [
+                if (hasLeft) ...[
+                  routeBtn("左ルート", "route_left", routesLeft, true),
+                  const SizedBox(height: 12),
+                ],
+                if (hasCenter) ...[
+                  routeBtn("中央ルート", "route_center", routesCenter, true),
+                  const SizedBox(height: 12),
+                ],
+                if (hasRight) ...[
+                  routeBtn("右ルート", "route_right", routesRight, true),
+                  const SizedBox(height: 12),
+                ],
+                if (!hasLeft && !hasCenter && !hasRight)
+                  const Text("利用可能な経路がありません", textAlign: TextAlign.center),
+              ],
+            ),
+          ),
+          // キャンセル用に戻るボタンなどをつけてもよいが、今回は省略
+        ],
+      );
+    }
+
+    // 表示メッセージの制御
     String displayMessage = cooperationMessage;
     if (!isSystemReady) {
       displayMessage = "パートナーの接続を待っています...";
@@ -162,6 +219,7 @@ class HomeScreen extends HookConsumerWidget {
       displayMessage = "指定外の場所($currentLocation)にいます。\n操作できません。";
     }
 
+    // 右側のパネルエリア
     final Widget questionArea = Expanded(
       flex: 1,
       child: Container(
@@ -206,21 +264,24 @@ class HomeScreen extends HookConsumerWidget {
               ),
             ),
             const SizedBox(height: 24),
-            const Text(
-              "目的地",
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+            Text(
+              // UIモードによってタイトル変更
+              uiMode == 'route' ? "経路選択 ($targetDestination へ)" : "目的地",
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
               textAlign: TextAlign.left,
             ),
             const SizedBox(height: 16),
             Expanded(
-              child: buildDestinationButtons(),
+              // ★ ここでボタンの出し分け
+              child: (uiMode == 'route' && userId == destinationSelector)
+                  ? buildRouteButtons()
+                  : buildDestinationButtons(),
             ),
           ],
         ),
       ),
     );
 
-    // FocusをScaffoldの外側に配置し、画面全体で入力を確実に受け取る
     return Focus(
       autofocus: true,
       onKeyEvent: (node, event) {
@@ -248,7 +309,9 @@ class HomeScreen extends HookConsumerWidget {
                                 if (!isRobotBusy &&
                                     userId == destinationSelector &&
                                     isAtValidStartLocation &&
-                                    isSystemReady) {
+                                    isSystemReady &&
+                                    uiMode != 'route') {
+                                  // ルート選択中はピンタップ無効
                                   sendRequest(e);
                                 }
                               })),
