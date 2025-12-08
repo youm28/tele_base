@@ -278,7 +278,6 @@ async def websocket_kachaka_endpoint(websocket: WebSocket):
                      await websocket.send_json({"type": "ERROR", "message": "現在あなたのターンではありません。"})
                      continue
 
-                # パートナー存在確認 (開発中はコメントアウトしてもOK)
                 partner_id = "user_2" if user_id == "user_1" else "user_1"
                 if partner_id not in user_assignments.values():
                      await websocket.send_json({"type": "ERROR", "message": "パートナーがいません。"})
@@ -294,27 +293,32 @@ async def websocket_kachaka_endpoint(websocket: WebSocket):
                 route_key = (current_location_name, dest_name)
                 available_routes = ROUTE_PATTERNS.get(route_key, DEFAULT_ROUTE)
 
-                # ★ 変更点: 目的地を選択した本人(user_id)に経路選択を促す
+                # ★変更: Selector(自分)に経路選択を要求する
                 await send_status_to_all_clients({
                     "type": "WAITING_FOR_ROUTE", 
-                    "message": f"目的地「{dest_name}」選択済。経路を選んでください。", 
-                    "for_user": user_id,  # 自分に権限を渡す
+                    "message": f"目的地「{dest_name}」選択済。経路を選択してください。", 
+                    "for_user": user_id, # 自分自身を指定
                     "route_options": available_routes,
                     "target_destination": dest_name 
                 })
+                # 自分へのレスポンスも「経路を選んで」に変更
+                await websocket.send_json({"type": "WAITING_FOR_ROUTE", "message": "経路を選択してください。"})
 
             elif action == "SELECT_ROUTE":
+                # ★変更: 目的地を選んだ人(Selector)だけが経路を選べる
                 if user_id != current_destination_selector:
-                    await websocket.send_json({"type": "ERROR", "message": "操作権がありません。"})
+                    await websocket.send_json({"type": "ERROR", "message": "あなたは経路選択の担当ではありません。"})
                     continue
 
                 if current_moving_location:
                     await websocket.send_json({"type": "ERROR", "message": "移動中です。"})
                     continue
+                
+                # 自分の目的地リクエストがあるか確認
                 if current_destination_selector not in destination_requests:
                     await websocket.send_json({"type": "ERROR", "message": "先に目的地を選んでください。"})
                     continue
-                
+
                 route_selection = data.get("route")
                 await process_destination_and_route()
 
@@ -419,11 +423,15 @@ async def websocket_servo_endpoint(websocket: WebSocket):
         while True:
             data = await websocket.receive_json()
             
+            # デバッグ用
+            # print(f"📨 Servo Command: {data}")
+
             user_id = data.get("user_id")
             axis = data.get("axis") 
             command = data.get("command") 
 
             if user_id not in USER_SERVO_MAP:
+                # print(f"⚠️ Unknown User: {user_id}")
                 continue
 
             target_servos = USER_SERVO_MAP[user_id]
@@ -442,18 +450,24 @@ async def websocket_servo_endpoint(websocket: WebSocket):
 @app.on_event("startup")
 async def startup_event():
     global kachaka_client
-    print("🚀 Server Starting (Route Select Mode)...")
+    print("🚀 Server Starting (Single User Select Mode)...")
     print("⚙️ Initializing Servos to Origin (0)...")
     try:
+        # 定義されている全サーボをリスト化
         initial_servos = [
             (5, servoHorizontalRight),
             (7, servoVerticalRight),
             (13, servoHorizontalLeft),
             (9, servoVerticalLeft)
         ]
+        
+        # 順番に0度へ移動させる
         for p_id, servo in initial_servos:
             move_servo(p_id, servo, 0)
+            
+        # 念のため物理的な移動時間を待つ
         time.sleep(0.5)
+        
     except Exception as e:
         print(f"⚠️ Servo Init Error: {e}")
         
