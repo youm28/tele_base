@@ -8,42 +8,42 @@ import 'package:telebase_app/utils/helpers/map_helper.dart';
 import 'package:telebase_app/widgets/map_image.dart';
 import 'package:telebase_app/widgets/robot_widget.dart';
 import 'package:kachaka_api/kachaka_api.dart';
-import 'package:telebase_app/widgets/map_arrow_painter.dart'; // 追加
+import 'package:telebase_app/widgets/map_arrow_painter.dart';
 
 class MapWidget extends HookConsumerWidget {
   final Map_ mapInfo;
   final List<PinModel> pins;
   final ValueNotifier<MapTransformState> mapTransformState;
-  final List<Pose>? previewPath; // 追加
+  final List<Pose>? previewPath;
 
   const MapWidget({
     super.key,
     required this.mapInfo,
     required this.pins,
     required this.mapTransformState,
-    this.previewPath, // 追加
+    this.previewPath,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return LayoutBuilder(builder: (context, constraints) {
-      final swappedConstraints = BoxConstraints(
-        maxWidth: constraints.maxHeight,
-        maxHeight: constraints.maxWidth,
-      );
+      // ★変更: 回転させないため、縦横の制約を入れ替える処理(swappedConstraints)を削除し、
+      // そのままの constraints を使用します。
 
       return HookBuilder(builder: (context) {
         final transformationController = useTransformationController();
         final mapLayout = useMemoized(
             () => MapHelper.calcMapSize(
                   mapInfo: mapInfo,
-                  constraints: swappedConstraints,
+                  constraints:
+                      constraints, // ★変更: swappedConstraints -> constraints
                 ),
-            [mapInfo, swappedConstraints]);
+            [mapInfo, constraints]); // ★変更: swappedConstraints -> constraints
 
         useEffect(() {
-          final scaleX = swappedConstraints.maxWidth / mapLayout.mapWidth;
-          final scaleY = swappedConstraints.maxHeight / mapLayout.mapHeight;
+          // ★変更: swappedConstraints -> constraints
+          final scaleX = constraints.maxWidth / mapLayout.mapWidth;
+          final scaleY = constraints.maxHeight / mapLayout.mapHeight;
           final initialScale = math.min(scaleX, scaleY);
 
           transformationController.value = Matrix4.identity()
@@ -59,7 +59,7 @@ class MapWidget extends HookConsumerWidget {
           return null;
         }, [mapLayout]);
 
-        // ★★★ プレビューパスを画面座標(Offset)に変換 ★★★
+        // プレビューパスを画面座標(Offset)に変換
         List<Offset> arrowOffsets = [];
         if (previewPath != null) {
           arrowOffsets = previewPath!.map((pose) {
@@ -75,77 +75,75 @@ class MapWidget extends HookConsumerWidget {
           }).toList();
         }
 
-        return RotatedBox(
-          quarterTurns: 3,
-          child: InteractiveViewer(
-            transformationController: transformationController,
-            maxScale: double.infinity,
-            minScale: 0.2,
-            onInteractionUpdate: (details) {
-              final scale = transformationController.value.getMaxScaleOnAxis();
-              mapTransformState.value =
-                  mapTransformState.value.copyWith(scale: scale);
-            },
-            scaleEnabled: true,
-            panEnabled: true,
-            child: SizedBox(
-              width: mapLayout.mapWidth,
-              height: mapLayout.mapHeight,
-              child: Stack(
-                children: [
-                  MapImage(
-                    mapInfo: mapInfo,
-                    width: mapLayout.mapWidth,
-                    height: mapLayout.mapHeight,
-                  ),
+        // ★変更: RotatedBox を削除しました
+        return InteractiveViewer(
+          transformationController: transformationController,
+          maxScale: double.infinity,
+          minScale: 0.2,
+          onInteractionUpdate: (details) {
+            final scale = transformationController.value.getMaxScaleOnAxis();
+            mapTransformState.value =
+                mapTransformState.value.copyWith(scale: scale);
+          },
+          scaleEnabled: true,
+          panEnabled: true,
+          child: SizedBox(
+            width: mapLayout.mapWidth,
+            height: mapLayout.mapHeight,
+            child: Stack(
+              children: [
+                MapImage(
+                  mapInfo: mapInfo,
+                  width: mapLayout.mapWidth,
+                  height: mapLayout.mapHeight,
+                ),
 
-                  // ★★★ 追加: 経路プレビュー描画 ★★★
-                  if (arrowOffsets.isNotEmpty)
-                    Positioned.fill(
-                      child: CustomPaint(
-                        painter: MapArrowPainter(
-                          points: arrowOffsets,
-                          color: Colors.orangeAccent.withOpacity(0.8),
-                        ),
+                // 経路プレビュー描画
+                if (arrowOffsets.isNotEmpty)
+                  Positioned.fill(
+                    child: CustomPaint(
+                      painter: MapArrowPainter(
+                        points: arrowOffsets,
+                        color: Colors.orangeAccent.withOpacity(0.8),
                       ),
                     ),
+                  ),
 
-                  ...pins.map(
-                    (e) {
-                      final scaleFactor = e.shouldScale
-                          ? 1.0 /
-                              (mapTransformState.value.scale == 0
-                                  ? 0.01
-                                  : mapTransformState.value.scale)
-                          : 1.0;
-                      final loc = MapHelper.pinWidgetToMapLocation(
-                        mapInfo: mapInfo,
-                        pose: e.pose,
-                        pinCenterFormLeft: e.pinCenterOffset.dx,
-                        pinCenterFromBottom: e.pinCenterOffset.dy,
-                        layoutInfo: mapLayout,
-                      );
-                      return Positioned(
-                        left: loc[0],
-                        bottom: loc[1],
-                        child: Transform.scale(
-                          alignment: Alignment.bottomLeft,
-                          scale: scaleFactor,
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.translucent,
-                            onTap: () => e.onTap?.call(),
-                            child: e.child,
-                          ),
+                ...pins.map(
+                  (e) {
+                    final scaleFactor = e.shouldScale
+                        ? 1.0 /
+                            (mapTransformState.value.scale == 0
+                                ? 0.01
+                                : mapTransformState.value.scale)
+                        : 1.0;
+                    final loc = MapHelper.pinWidgetToMapLocation(
+                      mapInfo: mapInfo,
+                      pose: e.pose,
+                      pinCenterFormLeft: e.pinCenterOffset.dx,
+                      pinCenterFromBottom: e.pinCenterOffset.dy,
+                      layoutInfo: mapLayout,
+                    );
+                    return Positioned(
+                      left: loc[0],
+                      bottom: loc[1],
+                      child: Transform.scale(
+                        alignment: Alignment.bottomLeft,
+                        scale: scaleFactor,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.translucent,
+                          onTap: () => e.onTap?.call(),
+                          child: e.child,
                         ),
-                      );
-                    },
-                  ),
-                  RobotWidget(
-                    mapInfo: mapInfo,
-                    layoutInfo: mapLayout,
-                  ),
-                ],
-              ),
+                      ),
+                    );
+                  },
+                ),
+                RobotWidget(
+                  mapInfo: mapInfo,
+                  layoutInfo: mapLayout,
+                ),
+              ],
             ),
           ),
         );

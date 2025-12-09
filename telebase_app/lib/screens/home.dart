@@ -414,11 +414,13 @@ class HomeScreen extends HookConsumerWidget {
     );
     const double estimatedHeight = 18;
     final double estimatedWidth = location.name.length * 10.0 + 16.0;
+
     return PinModel(
       pose: location.pose,
       pinCenterOffset: Offset(estimatedHeight / 2, estimatedWidth / 2),
       onTap: onTap,
-      child: RotatedBox(quarterTurns: 1, child: pinLabel),
+      // ★修正: マップの回転をなくしたため、ピンのRotatedBoxも削除して水平表示にする
+      child: pinLabel,
     );
   }
 }
