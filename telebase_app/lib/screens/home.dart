@@ -1,3 +1,4 @@
+import 'dart:async'; // Timer用
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // キーボード操作用
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -40,10 +41,30 @@ class HomeScreen extends HookConsumerWidget {
     final currentLocation = ref.watch(currentLocationProvider);
     final isSystemReady = ref.watch(isSystemReadyProvider);
     final destinationSelector = ref.watch(destinationSelectorProvider);
+    final cooldownUntil = ref.watch(cooldownUntilProvider);
 
     final routeOptions = ref.watch(routeOptionsProvider);
     final targetDestination = ref.watch(targetDestinationProvider);
     final selectedPreviewRoute = useState<String?>(null);
+
+    // クールダウン残り時間の状態管理
+    final remainingCooldown = useState<int>(0);
+
+    // ★ 定期タイマーでクールダウン残り時間を更新
+    useEffect(() {
+      final timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
+        final diff = (cooldownUntil - now).ceil();
+        if (diff > 0) {
+          remainingCooldown.value = diff;
+        } else {
+          remainingCooldown.value = 0;
+        }
+      });
+      return timer.cancel;
+    }, [cooldownUntil]);
+
+    final isCoolingDown = remainingCooldown.value > 0;
 
     const allowedStartLocations = [
       '充電ドック',
@@ -203,7 +224,8 @@ class HomeScreen extends HookConsumerWidget {
           final bool canPress = !isRobotBusy &&
               uiMode != 'waiting' &&
               isAtValidStartLocation &&
-              isSystemReady;
+              isSystemReady &&
+              !isCoolingDown; // ★クールダウン中は押せない
 
           // ▼▼▼ 変更: 表示用タイトルを取得（なければ元の名前を使う） ▼▼▼
           final displayName = locationTitles[location.name] ?? location.name;
@@ -262,7 +284,8 @@ class HomeScreen extends HookConsumerWidget {
                 final bool canPress = !isRobotBusy &&
                     uiMode != 'waiting' &&
                     isAtValidStartLocation &&
-                    isSystemReady;
+                    isSystemReady &&
+                    !isCoolingDown;
 
                 return ElevatedButton(
                   onPressed: canPress
@@ -326,6 +349,9 @@ class HomeScreen extends HookConsumerWidget {
     String displayMessage = cooperationMessage;
     if (!isSystemReady) {
       displayMessage = "パートナーの接続を待っています...";
+    } else if (isCoolingDown) {
+      // ★クールダウン中のメッセージ上書き
+      displayMessage = "到着後の待機時間です。\nあと ${remainingCooldown.value} 秒...";
     } else if (!isAtValidStartLocation && !isRobotBusy && uiMode != 'waiting') {
       displayMessage = "指定外の場所($currentLocation)にいます。\n操作できません。";
     }
@@ -342,24 +368,28 @@ class HomeScreen extends HookConsumerWidget {
               height: 80,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color:
-                    !isSystemReady || (!isAtValidStartLocation && !isRobotBusy)
+                color: isCoolingDown
+                    ? Colors.grey.shade300 // ★クールダウン中の色
+                    : (!isSystemReady ||
+                            (!isAtValidStartLocation && !isRobotBusy)
                         ? Colors.grey.shade300
                         : (uiMode == 'route'
                             ? Colors.purple.shade50
                             : (robotStatus == 'moving'
                                 ? Colors.orange.shade100
-                                : Colors.blue.shade50)),
+                                : Colors.blue.shade50))),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                    color: !isSystemReady ||
-                            (!isAtValidStartLocation && !isRobotBusy)
+                    color: isCoolingDown
                         ? Colors.grey.shade500
-                        : (uiMode == 'route'
-                            ? Colors.purple.shade300
-                            : (robotStatus == 'moving'
-                                ? Colors.orange.shade300
-                                : Colors.blue.shade200)),
+                        : (!isSystemReady ||
+                                (!isAtValidStartLocation && !isRobotBusy)
+                            ? Colors.grey.shade500
+                            : (uiMode == 'route'
+                                ? Colors.purple.shade300
+                                : (robotStatus == 'moving'
+                                    ? Colors.orange.shade300
+                                    : Colors.blue.shade200))),
                     width: 2),
               ),
               alignment: Alignment.center,
@@ -369,7 +399,8 @@ class HomeScreen extends HookConsumerWidget {
                 style: TextStyle(
                     fontSize: 16,
                     color: !isSystemReady ||
-                            (!isAtValidStartLocation && !isRobotBusy)
+                            (!isAtValidStartLocation && !isRobotBusy) ||
+                            isCoolingDown
                         ? Colors.black54
                         : (uiMode == 'route'
                             ? Colors.purple.shade900
@@ -426,7 +457,8 @@ class HomeScreen extends HookConsumerWidget {
                                     uiMode != 'waiting' &&
                                     userId == destinationSelector &&
                                     isAtValidStartLocation &&
-                                    isSystemReady) {
+                                    isSystemReady &&
+                                    !isCoolingDown) {
                                   sendRequest(e);
                                 }
                               })),
