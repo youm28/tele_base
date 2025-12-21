@@ -45,7 +45,20 @@ class HomeScreen extends HookConsumerWidget {
     final targetDestination = ref.watch(targetDestinationProvider);
     final selectedPreviewRoute = useState<String?>(null);
 
-    const allowedStartLocations = ['充電ドック', '1', '2', '3', '4', '5', '6'];
+    const allowedStartLocations = [
+      '充電ドック',
+      '1',
+      '2',
+      '3',
+      '4',
+      '5',
+      '6',
+      '7',
+      '8',
+      '9',
+      '10',
+      '11'
+    ];
     final isAtValidStartLocation =
         allowedStartLocations.contains(currentLocation);
 
@@ -144,6 +157,22 @@ class HomeScreen extends HookConsumerWidget {
     final visibleLocations = availableDestinations;
 
     Widget buildDestinationButtons() {
+      // ▼▼▼ 追加: ロケーションIDと表示名の対応表 ▼▼▼
+      const Map<String, String> locationTitles = {
+        "1": "1 崩れゆくペルソナ",
+        "2": "2 未視感のノスタルジア",
+        "3": "3 飽和した無関心",
+        "4": "4 演出された完璧性への疲弊",
+        "5": "5 可能性の重圧",
+        "6": "6 自我の溶解願望",
+        "7": "7 デジタルの風化への恐怖",
+        "8": "8 深夜の明晰な刹那",
+        "9": "9 デジタル遺産の重み",
+        "10": "10 荒海を貫く希望",
+        "11": "11 最後の扉",
+      };
+      // ▲▲▲ 追加終わり ▲▲▲
+
       if (userId != destinationSelector) {
         if (isRobotBusy || uiMode == 'waiting') {
           return const Center(
@@ -176,6 +205,9 @@ class HomeScreen extends HookConsumerWidget {
               isAtValidStartLocation &&
               isSystemReady;
 
+          // ▼▼▼ 変更: 表示用タイトルを取得（なければ元の名前を使う） ▼▼▼
+          final displayName = locationTitles[location.name] ?? location.name;
+
           return ElevatedButton(
             onPressed: canPress ? () => sendRequest(location) : null,
             style: ElevatedButton.styleFrom(
@@ -185,7 +217,8 @@ class HomeScreen extends HookConsumerWidget {
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12)),
             ),
-            child: Text(location.name,
+            // ▼▼▼ 変更: displayNameを表示 ▼▼▼
+            child: Text(displayName,
                 style: const TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
