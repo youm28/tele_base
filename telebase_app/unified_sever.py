@@ -11,8 +11,7 @@ import csv
 import os
 from datetime import datetime
 
-# カチャカのIPアドレス(研究室) 10.40.5.108
-# カチャカのIPアドレス(H509) 10.40.42.28
+# カチャカのIPアドレス
 KACHAKA_IP = "10.40.42.28"
 app = FastAPI()
 kachaka_client: kachaka_api.KachakaApiClient = None
